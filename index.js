@@ -1,8 +1,19 @@
 const axios = require("axios");
 const admin = require("firebase-admin");
 
-// ✅ load firebase key from ENV (GitHub Secret)
-const serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
+let serviceAccount;
+
+try {
+  if (!process.env.FIREBASE_KEY) {
+    throw new Error("FIREBASE_KEY is missing");
+  }
+
+  serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
+
+} catch (e) {
+  console.error("❌ Firebase key error:", e.message);
+  process.exit(1);
+}
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -22,18 +33,19 @@ async function fetchAndSave() {
       {
         headers: {
           "Cookie": `grafana_session=${SESSION_ID}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": "Mozilla/5.0"
+          "Content-Type": "application/x-www-form-urlencoded"
         },
         timeout: 15000
       }
     );
 
-    const data = res.data;
+    if (!Array.isArray(res.data)) {
+      throw new Error("Invalid API response");
+    }
 
     let output = [];
 
-    data.forEach(series => {
+    res.data.forEach(series => {
       const parts = series.target.split(".");
       if (parts.length < 6) return;
 
@@ -54,15 +66,15 @@ async function fetchAndSave() {
 
     await db.ref("project_tasks").set({
       updatedAt: new Date().toISOString(),
-      count: output.length,
       data: output
     });
 
-    console.log("✅ Updated:", new Date().toISOString());
+    console.log("✅ SUCCESS");
 
   } catch (err) {
-    console.error("❌ ERROR:", err.response?.data || err.message);
-    process.exit(1); // 👈 important for GitHub logs
+    console.error("❌ FETCH ERROR:");
+    console.error(err.response?.data || err.message);
+    process.exit(1);
   }
 }
 
