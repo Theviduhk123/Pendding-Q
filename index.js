@@ -3,7 +3,7 @@ require("dotenv").config();
 const axios = require("axios");
 const admin = require("firebase-admin");
 
-// 🔥 Firebase
+// Firebase
 const serviceAccount = require("./serviceAccountKey.json");
 
 admin.initializeApp({
@@ -13,66 +13,62 @@ admin.initializeApp({
 
 const db = admin.database();
 
-// 🔐 credentials from .env
-const USERNAME = process.env.GRAFANA_USER;
-const PASSWORD = process.env.GRAFANA_PASS;
-
 const BASE_URL = "https://monitor-public.trax-cloud.com";
 const API_URL = `${BASE_URL}/api/datasources/proxy/29/render`;
 
-// 🔑 login
+const USER = process.env.GRAFANA_USER;
+const PASS = process.env.GRAFANA_PASS;
+
 async function login() {
   const res = await axios.post(
     `${BASE_URL}/login`,
-    {
-      user: USERNAME,
-      password: PASSWORD
-    },
-    {
-      headers: { "Content-Type": "application/json" },
-      withCredentials: true
-    }
+    { user: USER, password: PASS },
+    { withCredentials: true }
   );
 
-  const cookies = res.headers["set-cookie"];
-  if (!cookies) throw new Error("No cookies received");
+  const cookie = res.headers["set-cookie"]
+    ?.find(c => c.includes("grafana_session"));
 
-  const session = cookies.find(c => c.includes("grafana_session"));
-  if (!session) throw new Error("No grafana session");
+  if (!cookie) throw new Error("Login failed (no session)");
 
-  return session.split(";")[0];
+  return cookie.split(";")[0];
 }
 
-// 📊 fetch
 async function fetchData(cookie) {
   const res = await axios.post(
     API_URL,
     "target=prod.gauges.selector.queue.*.*.total&from=-1h&until=now&format=json",
     {
       headers: {
-        "Cookie": cookie,
+        Cookie: cookie,
         "Content-Type": "application/x-www-form-urlencoded"
       }
     }
   );
 
+  if (!Array.isArray(res.data)) {
+    throw new Error("Invalid response (not JSON)");
+  }
+
   let output = [];
 
-  res.data.forEach(series => {
-    const parts = series.target.split(".");
-    if (parts.length < 6) return;
+  res.data.forEach(s => {
+    const p = s.target.split(".");
+    if (p.length < 6) return;
 
-    const task = parts[4];
-    const project = parts[5];
+    const task = p[4];
+    const project = p[5];
 
     if (project.includes("-sand")) return;
 
-    const valid = series.datapoints.filter(d => d[0] !== null);
+    const valid = s.datapoints.filter(d => d[0] !== null);
     if (!valid.length) return;
 
-    const value = valid[valid.length - 1][0];
-
-    output.push({ project, task, value });
+    output.push({
+      project,
+      task,
+      value: valid.at(-1)[0]
+    });
   });
 
   output.sort((a, b) => b.value - a.value);
@@ -80,20 +76,15 @@ async function fetchData(cookie) {
   return output;
 }
 
-// 💾 save
-async function save(data) {
-  await db.ref("project_tasks").set({
-    updatedAt: new Date().toISOString(),
-    data
-  });
-}
-
-// 🔁 run
 async function run() {
   try {
     const cookie = await login();
     const data = await fetchData(cookie);
-    await save(data);
+
+    await db.ref("project_tasks").set({
+      updatedAt: new Date().toISOString(),
+      data
+    });
 
     console.log("✅ Updated:", new Date().toLocaleTimeString());
 
@@ -102,8 +93,6 @@ async function run() {
   }
 }
 
-// ⏱ every 30 sec
+// every 30 sec
 setInterval(run, 30000);
-
-// run first time
 run();
