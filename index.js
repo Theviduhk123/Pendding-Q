@@ -1,19 +1,8 @@
 const axios = require("axios");
 const admin = require("firebase-admin");
 
-let serviceAccount;
-
-try {
-  if (!process.env.FIREBASE_KEY) {
-    throw new Error("FIREBASE_KEY is missing");
-  }
-
-  serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
-
-} catch (e) {
-  console.error("❌ Firebase key error:", e.message);
-  process.exit(1);
-}
+// 🔥 Firebase (use your JSON file locally)
+const serviceAccount = require("./serviceAccountKey.json");
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -22,60 +11,112 @@ admin.initializeApp({
 
 const db = admin.database();
 
-const URL = "https://monitor-public.trax-cloud.com/api/datasources/proxy/29/render";
-const SESSION_ID = "a06c0df22371f2040af8146afda4acaf";
+// 🔐 Grafana credentials (CHANGE THIS)
+const GRAFANA_URL = "https://monitor-public.trax-cloud.com";
+const USERNAME = "gss.colombo@gssintl.biz";
+const PASSWORD = "GSS_TraxForm@2026";
 
-async function fetchAndSave() {
+const API_URL = `${GRAFANA_URL}/api/datasources/proxy/29/render`;
+
+// 🔑 login → get session cookie
+async function login() {
   try {
     const res = await axios.post(
-      URL,
-      "target=prod.gauges.selector.queue.*.*.total&from=-1h&until=now&format=json",
+      `${GRAFANA_URL}/login`,
+      {
+        user: USERNAME,
+        password: PASSWORD
+      },
       {
         headers: {
-          "Cookie": `grafana_session=${SESSION_ID}`,
-          "Content-Type": "application/x-www-form-urlencoded"
+          "Content-Type": "application/json"
         },
-        timeout: 15000
+        withCredentials: true
       }
     );
 
-    if (!Array.isArray(res.data)) {
-      throw new Error("Invalid API response");
-    }
+    const cookies = res.headers["set-cookie"];
+    if (!cookies) throw new Error("No cookies received");
 
-    let output = [];
+    const sessionCookie = cookies.find(c => c.includes("grafana_session"));
 
-    res.data.forEach(series => {
-      const parts = series.target.split(".");
-      if (parts.length < 6) return;
+    if (!sessionCookie) throw new Error("Session cookie not found");
 
-      const task = parts[4];
-      const project = parts[5];
-
-      if (project.includes("-sand")) return;
-
-      const validPoints = series.datapoints.filter(dp => dp[0] !== null);
-      if (!validPoints.length) return;
-
-      const value = validPoints[validPoints.length - 1][0];
-
-      output.push({ project, task, value });
-    });
-
-    output.sort((a, b) => b.value - a.value);
-
-    await db.ref("project_tasks").set({
-      updatedAt: new Date().toISOString(),
-      data: output
-    });
-
-    console.log("✅ SUCCESS");
+    return sessionCookie.split(";")[0]; // grafana_session=xxxx
 
   } catch (err) {
-    console.error("❌ FETCH ERROR:");
-    console.error(err.response?.data || err.message);
-    process.exit(1);
+    console.error("❌ Login failed:", err.response?.data || err.message);
+    throw err;
   }
 }
 
-fetchAndSave();
+// 📊 fetch data
+async function fetchData(cookie) {
+  const res = await axios.post(
+    API_URL,
+    "target=prod.gauges.selector.queue.*.*.total&from=-1h&until=now&format=json",
+    {
+      headers: {
+        "Cookie": cookie,
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      timeout: 15000
+    }
+  );
+
+  if (!Array.isArray(res.data)) {
+    throw new Error("Invalid API response (not JSON)");
+  }
+
+  let output = [];
+
+  res.data.forEach(series => {
+    const parts = series.target.split(".");
+    if (parts.length < 6) return;
+
+    const task = parts[4];
+    const project = parts[5];
+
+    if (project.includes("-sand")) return;
+
+    const validPoints = series.datapoints.filter(dp => dp[0] !== null);
+    if (!validPoints.length) return;
+
+    const value = validPoints[validPoints.length - 1][0];
+
+    output.push({ project, task, value });
+  });
+
+  output.sort((a, b) => b.value - a.value);
+
+  return output;
+}
+
+// 💾 save to Firebase
+async function saveToFirebase(data) {
+  await db.ref("project_tasks").set({
+    updatedAt: new Date().toISOString(),
+    count: data.length,
+    data
+  });
+}
+
+// 🔁 main loop
+async function run() {
+  try {
+    const cookie = await login();
+    const data = await fetchData(cookie);
+    await saveToFirebase(data);
+
+    console.log("✅ Updated:", new Date().toLocaleTimeString());
+
+  } catch (err) {
+    console.error("❌ ERROR:", err.message);
+  }
+}
+
+// ⏱ run every 30 seconds
+setInterval(run, 30000);
+
+// run immediately
+run();
