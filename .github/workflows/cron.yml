@@ -1,16 +1,28 @@
-name: Run Script Every 30s
+name: Grafana Fetch Cron
 
 on:
   schedule:
-    - cron: "*/1 * * * *"   # (GitHub min = 1 min)
+    - cron: "*/1 * * * *"  # every 1 minute (GitHub limit)
   workflow_dispatch:
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
+
+    env:
+      FIREBASE_KEY: ${{ secrets.FIREBASE_KEY }}
+
     steps:
-      - uses: actions/checkout@v3
-      - name: Install deps
+      - name: Checkout
+        uses: actions/checkout@v4   # ✅ FIXED (v3 → v4)
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
         run: npm install
+
       - name: Run script
         run: node index.js
