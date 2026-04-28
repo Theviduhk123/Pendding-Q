@@ -5,6 +5,15 @@ const SESSION_ID = "a06c0df22371f2040af8146afda4acaf";
 
 const FIREBASE_URL = "https://sahiru-7a8a4-default-rtdb.firebaseio.com/data.json";
 
+// ✅ only allow these tasks
+const ALLOWED_TASKS = [
+  "pricing_voting",
+  "offline_pricing",
+  "stitching",
+  "masking",
+  "masking_engine"
+];
+
 async function fetchAndPush() {
   try {
     const res = await axios.post(
@@ -31,7 +40,11 @@ async function fetchAndPush() {
       const task = parts[4];
       const project = parts[5];
 
+      // ❌ remove -sand projects
       if (project.includes("-sand")) return;
+
+      // ❌ allow only selected tasks
+      if (!ALLOWED_TASKS.includes(task)) return;
 
       const validPoints = series.datapoints.filter(dp => dp[0] !== null);
       if (validPoints.length === 0) return;
@@ -40,6 +53,9 @@ async function fetchAndPush() {
 
       output.push({ project, task, value });
     });
+
+    // (optional) sort by value descending
+    output.sort((a, b) => b.value - a.value);
 
     // push to Firebase
     await axios.put(FIREBASE_URL, output);
