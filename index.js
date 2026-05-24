@@ -1,7 +1,7 @@
 const axios = require("axios");
 
 const GRAFANA_URL = "https://monitor-public.trax-cloud.com/api/datasources/proxy/29/render";
-const SESSION_ID = "a06c0df22371f2040af8146afda4acaf";
+const SESSION_ID = "233f297590eb1d4840bc5e06eac86310";
 
 const FIREBASE_URL = "https://sahiru-7a8a4-default-rtdb.firebaseio.com/data.json";
 
