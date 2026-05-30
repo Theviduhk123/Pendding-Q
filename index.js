@@ -11,6 +11,7 @@ const ALLOWED_TASKS = [
   "offline_pricing",
   "stitching",
   "masking",
+  "masking_price_labels",
   "masking_engine"
 ];
 
