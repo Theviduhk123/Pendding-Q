@@ -17,18 +17,18 @@ const ALLOWED_TASKS = [
 ];
 
 // ============================================================
-// TODO: Replace these with your ACTUAL Graphite target strings
-// for "oldest task in queue", per cloud. Check your Grafana
-// panel's query editor (View panel JSON / query inspector) to
-// get the exact metric path pattern for AWS and GCP.
-//
-// These are placeholders based on your existing queue.total
-// pattern — they will almost certainly need adjusting.
+// NOTE: These target strings are BEST-EFFORT GUESSES based on
+// the pattern of your existing "queue.*.*.total" metric.
+// If the OLDEST/duration table in Firebase comes back empty,
+// it means these paths don't match your real Graphite metrics.
+// Open the Grafana panel for "OLDEST" -> Edit -> copy the exact
+// target string from the query editor, and send it to me so I
+// can correct these two lines.
 // ============================================================
 const AWS_OLDEST_TARGET =
-  "aws.prod.gauges.selector.queue.*.*.oldest";
+  "prod.gauges.selector.queue.aws.*.*.oldest_duration";
 const GCP_OLDEST_TARGET =
-  "gcp.prod.gauges.selector.queue.*.*.oldest";
+  "prod.gauges.selector.queue.gcp.*.*.oldest_duration";
 
 let SESSION_ID = null;
 
@@ -131,9 +131,10 @@ function parseQueueSeries(data) {
   return output;
 }
 
-// Parse an "oldest task" style series into { project, task, oldestAgeSeconds }
-// TODO: adjust the index of `task` / `project` below once you confirm
-// the real target path structure for AWS/GCP oldest metrics.
+// Parse an "oldest task" style series into { project, task, durationSeconds }
+// parts index layout assumed same as queue.total:
+// prod.gauges.selector.queue.<cloud>.<task>.<project>.oldest_duration
+// Adjust indices below once real target format is confirmed.
 function parseOldestSeries(data) {
   let output = [];
   data.forEach(series => {
@@ -148,11 +149,11 @@ function parseOldestSeries(data) {
     output.push({
       project,
       task,
-      oldestAgeSeconds: validPoints[validPoints.length - 1][0]
+      durationSeconds: validPoints[validPoints.length - 1][0]
     });
   });
-  // Oldest first = highest age first
-  output.sort((a, b) => b.oldestAgeSeconds - a.oldestAgeSeconds);
+  // Oldest first = highest duration first
+  output.sort((a, b) => b.durationSeconds - a.durationSeconds);
   return output;
 }
 
